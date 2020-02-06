@@ -582,8 +582,6 @@ func (s *Scheduler) fetchChartAndExtractReplicaCount(rel *shipper.Release) (int3
 		return 0, err
 	}
 
-	klog.V(4).Infof("Extracted %d replicas from release %q", replicas, controller.MetaKey(rel))
-
 	return int32(replicas), nil
 }
 

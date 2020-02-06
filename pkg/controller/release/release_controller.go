@@ -439,8 +439,6 @@ ApplyChanges:
 		}
 	}
 
-	klog.V(4).Infof("Done processing Release %q", key)
-
 	return err
 }
 
