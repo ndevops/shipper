@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -19,6 +20,7 @@ import (
 	"github.com/bookingcom/shipper/cmd/shipperctl/configurator"
 	"github.com/bookingcom/shipper/cmd/shipperctl/tls"
 	shipper "github.com/bookingcom/shipper/pkg/apis/shipper/v1alpha1"
+	shipperclient "github.com/bookingcom/shipper/pkg/client"
 	"github.com/bookingcom/shipper/pkg/crds"
 )
 
@@ -42,6 +44,12 @@ var (
 		Use:   "management",
 		Short: "setup a Shipper management cluster",
 		RunE:  runSetupMgmtClusterCommand,
+	}
+
+	setupAppCmd = &cobra.Command{
+		Use:   "application",
+		Short: "setup Shipper application clusters",
+		RunE:  runSetupAppClusterCommand,
 	}
 
 	joinCmd = &cobra.Command{
@@ -70,7 +78,7 @@ const (
 )
 
 func init() {
-	for _, cmd := range []*cobra.Command{joinCmd, setupMgmtCmd} {
+	for _, cmd := range []*cobra.Command{joinCmd, setupMgmtCmd, setupAppCmd} {
 		cmd.Flags().StringVar(&kubeConfigFile, kubeConfigFlagName, "~/.kube/config", "the path to the Kubernetes configuration file")
 		if err := cmd.MarkFlagFilename(kubeConfigFlagName, "yaml"); err != nil {
 			cmd.Printf("warning: could not mark %q for filename autocompletion: %s\n", kubeConfigFlagName, err)
@@ -90,6 +98,7 @@ func init() {
 	}
 
 	setupCmd.AddCommand(setupMgmtCmd)
+	setupCmd.AddCommand(setupAppCmd)
 
 	ClustersCmd.AddCommand(setupCmd)
 	ClustersCmd.AddCommand(joinCmd)
@@ -107,6 +116,44 @@ func runSetupMgmtClusterCommand(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	cmd.Println("Finished setting up management cluster")
+
+	return nil
+}
+
+func runSetupAppClusterCommand(cmd *cobra.Command, args []string) error {
+	mgmtConfigurator, err := configurator.NewClusterConfiguratorFromKubeConfig(kubeConfigFile, managementClusterContext)
+	if err != nil {
+		return err
+	}
+
+	clusterList, err := mgmtConfigurator.ListClusters()
+	if err != nil {
+		return err
+	}
+
+	for _, cluster := range clusterList.Items {
+		secret, err := mgmtConfigurator.FetchSecret(cluster.Name, shipperNamespace)
+		if err != nil {
+			return err
+		}
+
+		restConfig := shipperclient.BuildConfigFromClusterAndSecret(&cluster, secret)
+		appConfigurator, err := configurator.NewClusterConfigurator(restConfig)
+		if err != nil {
+			return err
+		}
+
+		crds := []*apiextensionv1beta1.CustomResourceDefinition{
+			crds.InstallationTarget,
+		}
+
+		for _, crd := range crds {
+			err := appConfigurator.CreateOrUpdateCRD(crd)
+			if err != nil {
+				return err
+			}
+		}
+	}
 
 	return nil
 }
@@ -238,32 +285,23 @@ func joinClusters(
 
 func createOrUpdateCrds(cmd *cobra.Command, configurator *configurator.Cluster) error {
 	cmd.Print("Registering or updating custom resource definitions... ")
-	if err := configurator.CreateOrUpdateCRD(crds.Application); err != nil {
-		return err
+
+	crds := []*apiextensionv1beta1.CustomResourceDefinition{
+		crds.Cluster,
+		crds.RolloutBlock,
+		crds.Application,
+		crds.Release,
+		crds.CapacityTarget,
+		crds.TrafficTarget,
+		crds.Application,
+		crds.Application,
 	}
 
-	if err := configurator.CreateOrUpdateCRD(crds.Release); err != nil {
-		return err
-	}
-
-	if err := configurator.CreateOrUpdateCRD(crds.InstallationTarget); err != nil {
-		return err
-	}
-
-	if err := configurator.CreateOrUpdateCRD(crds.CapacityTarget); err != nil {
-		return err
-	}
-
-	if err := configurator.CreateOrUpdateCRD(crds.TrafficTarget); err != nil {
-		return err
-	}
-
-	if err := configurator.CreateOrUpdateCRD(crds.Cluster); err != nil {
-		return err
-	}
-
-	if err := configurator.CreateOrUpdateCRD(crds.RolloutBlock); err != nil {
-		return err
+	for _, crd := range crds {
+		err := configurator.CreateOrUpdateCRD(crd)
+		if err != nil {
+			return err
+		}
 	}
 
 	cmd.Println("done")

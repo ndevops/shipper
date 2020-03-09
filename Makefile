@@ -96,6 +96,7 @@ install-shipper-mgmt: build/shipper-mgmt.image.$(IMAGE_TAG) build/shipper-mgmt.d
 setup: $(SHIPPER_CLUSTERS_YAML) build/shipperctl.$(GOOS)-amd64
 	./build/shipperctl.$(GOOS)-amd64 clusters setup management -n $(SHIPPER_NAMESPACE) $(SETUP_FLAGS)
 	./build/shipperctl.$(GOOS)-amd64 clusters join -f $(SHIPPER_CLUSTERS_YAML) -n $(SHIPPER_NAMESPACE) $(SETUP_FLAGS)
+	./build/shipperctl.$(GOOS)-amd64 clusters setup application -n $(SHIPPER_NAMESPACE) $(SETUP_FLAGS)
 
 # Run all end-to-end tests. It does all the work necessary to get the current
 # version of shipper on your working directory running in kubernetes, so just
