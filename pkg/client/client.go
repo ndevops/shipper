@@ -90,6 +90,14 @@ func NewKubeClientOrDie(ua string, config *rest.Config) *kubernetes.Clientset {
 	return kubernetes.NewForConfigOrDie(decorateConfig(config, ua))
 }
 
+func NewDynamicClient(ua string, config *rest.Config, gvk *schema.GroupVersionKind) (dynamic.Interface, error) {
+	config = decorateConfig(config, ua)
+	config.APIPath = dynamic.LegacyAPIPathResolverFunc(*gvk)
+	config.GroupVersion = &schema.GroupVersion{Group: gvk.Group, Version: gvk.Version}
+
+	return dynamic.NewForConfig(config)
+}
+
 func NewShipperClient(ua string, config *rest.Config) (*shipperclientset.Clientset, error) {
 	return shipperclientset.NewForConfig(decorateConfig(config, ua))
 }

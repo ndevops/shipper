@@ -1,9 +1,15 @@
 package testing
 
 import (
+	"fmt"
+
+	shipperfake "github.com/bookingcom/shipper/pkg/client/clientset/versioned/fake"
+	shipperinformers "github.com/bookingcom/shipper/pkg/client/informers/externalversions"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	fakediscovery "k8s.io/client-go/discovery/fake"
+	"k8s.io/client-go/dynamic"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/informers"
 	kubefake "k8s.io/client-go/kubernetes/fake"
@@ -13,17 +19,32 @@ import (
 type FakeCluster struct {
 	Name string
 
-	Client          *kubefake.Clientset
-	DynamicClient   *fakedynamic.FakeDynamicClient
-	InformerFactory informers.SharedInformerFactory
+	KubeClient          *kubefake.Clientset
+	KubeInformerFactory informers.SharedInformerFactory
+
+	ShipperClient          *shipperfake.Clientset
+	ShipperInformerFactory shipperinformers.SharedInformerFactory
+
+	DynamicClient *fakedynamic.FakeDynamicClient
 }
 
 func NewNamedFakeCluster(name string) *FakeCluster {
-	client := kubefake.NewSimpleClientset()
+	kubeClient := kubefake.NewSimpleClientset()
+	kubeInformerFactory := informers.NewSharedInformerFactory(kubeClient,
+		NoResyncPeriod)
+
+	shipperClient := shipperfake.NewSimpleClientset()
+	shipperInformerFactory := shipperinformers.NewSharedInformerFactory(
+		shipperClient, NoResyncPeriod)
+
 	return &FakeCluster{
-		Name:            name,
-		Client:          client,
-		InformerFactory: informers.NewSharedInformerFactory(client, NoResyncPeriod),
+		Name: name,
+
+		KubeClient:          kubeClient,
+		KubeInformerFactory: kubeInformerFactory,
+
+		ShipperClient:          shipperClient,
+		ShipperInformerFactory: shipperInformerFactory,
 	}
 }
 
@@ -31,20 +52,30 @@ func NewNamedFakeCluster(name string) *FakeCluster {
 // Go doesn't support that.
 
 func (c *FakeCluster) AddOne(object runtime.Object) {
-	c.Client.Tracker().Add(object)
+	c.KubeClient.Tracker().Add(object)
 }
 
 func (c *FakeCluster) AddMany(objects []runtime.Object) {
 	for _, o := range objects {
-		c.Client.Tracker().Add(o)
+		c.AddOne(o)
 	}
 }
 
 func (c *FakeCluster) InitializeDiscovery(resources []*v1.APIResourceList) {
-	fakeDiscovery := c.Client.Discovery().(*fakediscovery.FakeDiscovery)
+	fakeDiscovery := c.KubeClient.Discovery().(*fakediscovery.FakeDiscovery)
 	fakeDiscovery.Resources = resources
 }
 
 func (c *FakeCluster) InitializeDynamicClient(objects []runtime.Object) {
 	c.DynamicClient = fakedynamic.NewSimpleDynamicClient(scheme.Scheme, objects...)
+}
+
+func (c *FakeCluster) DynamicClientBuilder(kind *schema.GroupVersionKind) (dynamic.Interface, error) {
+	if c.DynamicClient == nil {
+		return nil, fmt.Errorf(
+			"cluster %q does not have an initialized DynamicClient. please call InitializeDynamicClient first",
+			c.Name)
+	}
+
+	return c.DynamicClient, nil
 }

@@ -21,7 +21,7 @@ import (
 	"github.com/bookingcom/shipper/pkg/util/anchor"
 )
 
-type DynamicClientBuilderFunc func(gvk *schema.GroupVersionKind, restConfig *rest.Config, cluster *shipper.Cluster) dynamic.Interface
+type DynamicClientBuilderFunc func(gvk *schema.GroupVersionKind) (dynamic.Interface, error)
 
 // Installer is an object that knows how to install objects into Kubernetes
 // clusters.
@@ -44,7 +44,6 @@ func NewInstaller(
 // buildResourceClient returns a ResourceClient suitable to manipulate the kind
 // of resource represented by the given GroupVersionKind at the given Cluster.
 func (i *Installer) buildResourceClient(
-	cluster *shipper.Cluster,
 	client kubernetes.Interface,
 	restConfig *rest.Config,
 	dynamicClientBuilder DynamicClientBuilderFunc,
@@ -80,7 +79,11 @@ func (i *Installer) buildResourceClient(
 		Resource: resource.Name,
 	}
 
-	dynamicClient := dynamicClientBuilder(gvk, restConfig, cluster)
+	dynamicClient, err := dynamicClientBuilder(gvk)
+	if err != nil {
+		return nil, err
+	}
+
 	resourceClient := dynamicClient.Resource(gvr)
 	if resource.Namespaced {
 		return resourceClient.Namespace(i.installationTarget.Namespace), nil
@@ -91,7 +94,6 @@ func (i *Installer) buildResourceClient(
 
 // install attempts to install the manifests on the specified cluster.
 func (i *Installer) install(
-	cluster *shipper.Cluster,
 	client kubernetes.Interface,
 	restConfig *rest.Config,
 	dynamicClientBuilderFunc DynamicClientBuilderFunc,
@@ -134,7 +136,6 @@ func (i *Installer) install(
 		if !ok {
 			var err error
 			resourceClient, err = i.buildResourceClient(
-				cluster,
 				client,
 				restConfig,
 				dynamicClientBuilderFunc,
